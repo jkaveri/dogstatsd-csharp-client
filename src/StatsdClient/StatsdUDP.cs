@@ -190,7 +190,9 @@ namespace StatsdClient
             });
             var completedAsync = UDPSocket.SendToAsync(args);
             if (!completedAsync)
+            {
                 tcs.SetResult(null);
+            }
 
             await tcs.Task;
         }
