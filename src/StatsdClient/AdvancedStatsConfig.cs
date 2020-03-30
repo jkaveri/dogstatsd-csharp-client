@@ -36,6 +36,12 @@ namespace StatsdClient
         /// </summary>
         public TimeSpan? UDSBufferFullBlockDuration { get; set; } = null;
 
+        /// <summary>
+        /// This value defines the duration between two telemetries flush.
+        /// When this value is null no telemetry is sent.
+        /// </summary>
+        public TimeSpan? TelemetryFlushInterval { get; set; } = null;
+
         public AdvancedStatsConfig()
         {
             DurationBeforeSendingNotFullBuffer = TimeSpan.FromMilliseconds(100);

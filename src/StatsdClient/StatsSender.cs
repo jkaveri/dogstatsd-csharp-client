@@ -1,16 +1,12 @@
 using System;
-using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using Mono.Unix;
-using System.Text;
-using System.Threading;
 using System.Threading.Tasks;
-using StatsdClient.Bufferize;
 
 namespace StatsdClient
 {
-    class StatsSender : IBufferBuilderHandler, IDisposable
+    class StatsSender : IStatsSender, IDisposable
     {
         readonly Socket _socket;
         readonly int _noBufferSpaceAvailableRetryCount;
@@ -19,7 +15,7 @@ namespace StatsdClient
 
         public static StatsSender CreateUDPStatsSender(IPEndPoint endPoint)
         {
-            return new StatsSender("UDP",
+            return new StatsSender(StatsSenderTransport.UDP,
                                    endPoint,
                                    AddressFamily.InterNetwork,
                                    ProtocolType.Udp,
@@ -29,7 +25,7 @@ namespace StatsdClient
         public static StatsSender CreateUnixDomainSocketStatsSender(UnixEndPoint endPoint,
                                                                     TimeSpan? udsBufferFullBlockDuration)
         {
-            return new StatsSender("Unix domain socket",
+            return new StatsSender(StatsSenderTransport.UDS,
                                    endPoint,
                                    AddressFamily.Unix,
                                    ProtocolType.IP,
@@ -37,12 +33,13 @@ namespace StatsdClient
         }
 
         StatsSender(
-            string kind,
+            StatsSenderTransport transport,
             EndPoint endPoint,
             AddressFamily addressFamily,
             ProtocolType protocolType,
             TimeSpan? bufferFullBlockDuration)
         {
+            TransportType = transport;
             if (bufferFullBlockDuration.HasValue)
             {
                 _noBufferSpaceAvailableRetryCount = (int)(bufferFullBlockDuration.Value.TotalMilliseconds
@@ -55,28 +52,38 @@ namespace StatsdClient
             }
             catch (SocketException e)
             {
-                throw new NotSupportedException($"{kind} is not supported on your operating system.", e);
+                string transportStr;
+                switch (transport)
+                {
+                    case StatsSenderTransport.UDP: transportStr = "Unix domain socket"; break;
+                    case StatsSenderTransport.UDS: transportStr = "UDP"; break;
+                    default: transportStr = transport.ToString(); break;                    
+                }
+                throw new NotSupportedException($"{transportStr} is not supported on your operating system.", e);
             }
 
             // When closing, wait 2 seconds to send data.
             _socket.LingerState = new LingerOption(true, 2);
             _socket.Connect(endPoint);
         }
+        
+        public StatsSenderTransport TransportType { get; }
 
-        public void Handle(byte[] buffer, int length)
+        public bool Send(byte[] buffer, int length)
         {
             for (int i = 0; i < 1 + _noBufferSpaceAvailableRetryCount; ++i)
             {
                 try
                 {
                     _socket.Send(buffer, 0, length, SocketFlags.None);
-                    break;
+                    return true;
                 }
                 catch (SocketException e) when (e.SocketErrorCode == SocketError.NoBufferSpaceAvailable)
                 {
                     Task.Delay(NoBufferSpaceAvailableWait).Wait();
                 }
             }
+            return false;
         }
 
         public void Dispose()

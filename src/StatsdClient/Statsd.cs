@@ -7,8 +7,8 @@ using System.Threading.Tasks;
 
 namespace StatsdClient
 {
-    [ObsoleteAttribute("This class will become private in a future release.\n" + 
-        "You can use instead `DogStatsdService` or `DogStatsd` which provides automatic metrics" + 
+    [ObsoleteAttribute("This class will become private in a future release.\n" +
+        "You can use instead `DogStatsdService` or `DogStatsd` which provides automatic metrics" +
         " buffering with asynchronous calls (metrics are added to a queue and another thread send them).")]
     public class Statsd : IStatsd
     {
@@ -20,7 +20,9 @@ namespace StatsdClient
         private IRandomGenerator RandomGenerator { get; set; }
         private readonly string _prefix;
         private readonly string[] _constantTags;
-        public bool TruncateIfTooLong {get; set; }
+        private readonly Telemetry _optionalTelemetry;
+
+        public bool TruncateIfTooLong { get; set; }
 
         public List<string> Commands
         {
@@ -45,7 +47,7 @@ namespace StatsdClient
 
             public static string GetCommand<TCommandType, T>(string prefix, string name, T value, double sampleRate, string[] tags) where TCommandType : Metric
             {
-                return GetCommand<TCommandType, T>(prefix,name,value,sampleRate,null,tags);
+                return GetCommand<TCommandType, T>(prefix, name, value, sampleRate, null, tags);
             }
 
             public static string GetCommand<TCommandType, T>(string prefix, string name, T value, double sampleRate, string[] constantTags, string[] tags) where TCommandType : Metric
@@ -71,7 +73,7 @@ namespace StatsdClient
 
             public static string GetCommand(string title, string text, string alertType, string aggregationKey, string sourceType, int? dateHappened, string priority, string hostname, string[] tags, bool truncateIfTooLong = false)
             {
-                return GetCommand(title,text,alertType,aggregationKey,sourceType,dateHappened,priority,hostname,null,tags,truncateIfTooLong);
+                return GetCommand(title, text, alertType, aggregationKey, sourceType, dateHappened, priority, hostname, null, tags, truncateIfTooLong);
             }
 
             public static string GetCommand(string title, string text, string alertType, string aggregationKey, string sourceType, int? dateHappened, string priority, string hostname, string[] constantTags, string[] tags, bool truncateIfTooLong = false)
@@ -130,7 +132,7 @@ namespace StatsdClient
 
             public static string GetCommand(string name, int status, int? timestamp, string hostname, string[] tags, string serviceCheckMessage, bool truncateIfTooLong = false)
             {
-                return GetCommand(name, status, timestamp, hostname, null, tags,serviceCheckMessage,truncateIfTooLong);
+                return GetCommand(name, status, timestamp, hostname, null, tags, serviceCheckMessage, truncateIfTooLong);
             }
             public static string GetCommand(string name, int status, int? timestamp, string hostname, string[] constantTags, string[] tags, string serviceCheckMessage, bool truncateIfTooLong = false)
             {
@@ -228,12 +230,18 @@ namespace StatsdClient
         public class Meter : Metric { }
         public class Set : Metric { }
 
-        public Statsd(IStatsdUDP udp, IRandomGenerator randomGenerator, IStopWatchFactory stopwatchFactory, string prefix, string[] constantTags)
+        internal Statsd(IStatsdUDP udp,
+                      IRandomGenerator randomGenerator,
+                      IStopWatchFactory stopwatchFactory,
+                      string prefix,
+                      string[] constantTags,
+                      Telemetry optionalTelemetry)
         {
             StopwatchFactory = stopwatchFactory;
             Udp = udp;
             RandomGenerator = randomGenerator;
             _prefix = prefix;
+            _optionalTelemetry = optionalTelemetry;
 
             string entityId = Environment.GetEnvironmentVariable(StatsdConfig.DD_ENTITY_ID_ENV_VAR);
 
@@ -249,8 +257,17 @@ namespace StatsdClient
             }
         }
 
+        public Statsd(IStatsdUDP udp,
+                      IRandomGenerator randomGenerator,
+                      IStopWatchFactory stopwatchFactory,
+                      string prefix,
+                      string[] constantTags)
+                      : this(udp, randomGenerator, stopwatchFactory, prefix, constantTags, null)
+        {
+        }
+
         public Statsd(IStatsdUDP udp, IRandomGenerator randomGenerator, IStopWatchFactory stopwatchFactory, string prefix)
-            : this(udp, randomGenerator, stopwatchFactory, prefix, null) { }
+            : this(udp, randomGenerator, stopwatchFactory, prefix, null, null) { }
 
         public Statsd(IStatsdUDP udp, IRandomGenerator randomGenerator, IStopWatchFactory stopwatchFactory)
             : this(udp, randomGenerator, stopwatchFactory, string.Empty) { }
@@ -275,6 +292,7 @@ namespace StatsdClient
         public void Send(string title, string text, string alertType = null, string aggregationKey = null, string sourceType = null, int? dateHappened = null, string priority = null, string hostname = null, string[] tags = null, bool truncateIfTooLong = false)
         {
             truncateIfTooLong = truncateIfTooLong || TruncateIfTooLong;
+            _optionalTelemetry?.EventSent();
             Send(Event.GetCommand(title, text, alertType, aggregationKey, sourceType, dateHappened, priority, hostname, _constantTags, tags, truncateIfTooLong));
         }
 
@@ -299,6 +317,7 @@ namespace StatsdClient
         public void Send(string name, int status, int? timestamp = null, string hostname = null, string[] tags = null, string serviceCheckMessage = null, bool truncateIfTooLong = false)
         {
             truncateIfTooLong = truncateIfTooLong || TruncateIfTooLong;
+            _optionalTelemetry?.ServiceCheckSent();
             Send(ServiceCheck.GetCommand(name, status, timestamp, hostname, _constantTags, tags, serviceCheckMessage, truncateIfTooLong));
         }
 
@@ -315,6 +334,7 @@ namespace StatsdClient
         {
             if (RandomGenerator.ShouldSend(sampleRate))
             {
+                _optionalTelemetry?.MetricSent();
                 Send(Metric.GetCommand<TCommandType, T>(_prefix, name, value, sampleRate, _constantTags, tags));
             }
         }

@@ -2,7 +2,7 @@ using System;
 using StatsdClient.Bufferize;
 
 namespace StatsdClient
-{
+{ // $$ use the size in socket for the default buffer size.
     public class DogStatsdService : IDogStatsd, IDisposable
     {
         private StatsdBuilder _statsdBuilder = new StatsdBuilder(new StatsBufferizeFactory());

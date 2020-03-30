@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Net;
+using System.Threading;
+using System.Threading.Tasks;
 using Mono.Unix;
 using Moq;
 using NUnit.Framework;
@@ -38,6 +40,26 @@ namespace StatsdClient.Tests
                 Environment.SetEnvironmentVariable(env.Key, env.Value);
 
             _statsdBuilder.Dispose();
+        }
+
+ [Test]
+        public void StatsdServerName42()
+        {
+            int expected = 1000 * 1000 * 1000;
+            int v = 0;
+            var t = Task.Run( () => {
+                    for (int i = 0; i < expected; ++i)
+                        Interlocked.Increment(ref v);
+            });
+            int total = 0;
+            for (int i = 0; i < 1000; ++i)
+            {
+                total += Interlocked.Exchange(ref v, 0);
+                Task.Delay(1).Wait();
+            }
+            t.Wait();
+            total += Interlocked.Exchange(ref v, 0);
+            Assert.AreEqual(expected, total);
         }
 
         [Test]
@@ -92,11 +114,11 @@ namespace StatsdClient.Tests
             conf.DurationBeforeSendingNotFullBuffer = TimeSpan.FromMilliseconds(4);
 
             _statsdBuilder.BuildStats(config);
-            _mock.Verify(m => m.CreateStatsBufferize(
-                It.Is<BufferBuilder>(b => b.Capacity == config.StatsdMaxUDPPacketSize),
-                conf.MaxMetricsInAsyncQueue,
-                conf.MaxBlockDuration,
-                conf.DurationBeforeSendingNotFullBuffer));
+            _mock.Verify(m => m.CreateStatsBufferize(It.IsAny<Telemetry>(),
+                                                     It.Is<BufferBuilder>(b => b.Capacity == config.StatsdMaxUDPPacketSize),
+                                                     conf.MaxMetricsInAsyncQueue,
+                                                     conf.MaxBlockDuration,
+                                                     conf.DurationBeforeSendingNotFullBuffer));
         }
 
         [Test]
@@ -106,11 +128,11 @@ namespace StatsdClient.Tests
             config.StatsdMaxUnixDomainSocketPacketSize = 20;
 
             _statsdBuilder.BuildStats(config);
-            _mock.Verify(m => m.CreateStatsBufferize(
-                           It.Is<BufferBuilder>(b => b.Capacity == config.StatsdMaxUnixDomainSocketPacketSize),
-                           It.IsAny<int>(),
-                           null,
-                           It.IsAny<TimeSpan>()));
+            _mock.Verify(m => m.CreateStatsBufferize(It.IsAny<Telemetry>(),
+                                                     It.Is<BufferBuilder>(b => b.Capacity == config.StatsdMaxUnixDomainSocketPacketSize),
+                                                     It.IsAny<int>(),
+                                                     null,
+                                                     It.IsAny<TimeSpan>()));
         }
 
         static StatsdConfig CreateUDSConfig(string server)
@@ -134,7 +156,8 @@ namespace StatsdClient.Tests
         {
             UnixEndPoint endPoint = null;
 
-            _mock.Setup(m => m.CreateUnixDomainSocketStatsSender(It.IsAny<UnixEndPoint>(), It.IsAny<TimeSpan?>()))
+            _mock.Setup(m => m.CreateUnixDomainSocketStatsSender(It.IsAny<UnixEndPoint>(),
+                                                                 It.IsAny<TimeSpan?>()))
                 .Callback<UnixEndPoint, TimeSpan?>((e, d) => endPoint = e);
             _statsdBuilder.BuildStats(config);
             Assert.NotNull(endPoint);
@@ -147,7 +170,7 @@ namespace StatsdClient.Tests
             IPEndPoint endPoint = null;
 
             _mock.Setup(m => m.CreateUDPStatsSender(It.IsAny<IPEndPoint>()))
-                .Callback<IPEndPoint>(e => endPoint = e);
+                .Callback< IPEndPoint>( e => endPoint = e);
             _statsdBuilder.BuildStats(config);
             Assert.NotNull(endPoint);
             return endPoint;
