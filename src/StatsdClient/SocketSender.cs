@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -18,6 +19,7 @@ namespace StatsdClient
 
         private static void Send(int maxPacketSize, byte[] encodedCommand, Action<byte[]> sender)
         {
+            Debug.WriteLine("DogstatsD: socket send command size: {0}", encodedCommand.Length);
             if (maxPacketSize > 0 && encodedCommand.Length > maxPacketSize)
             {
                 // If the command is too big to send, linear search backwards from the maximum
